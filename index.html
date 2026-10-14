@@ -134,6 +134,17 @@
   .card.fresh { animation: arrive 1.6s ease-out 1; }
   @keyframes arrive { from { box-shadow: 0 0 0 4px var(--pending); } to { box-shadow: 0 0 0 0 transparent; } }
 
+  .themes-panel { border-top: 1px solid var(--line); background: var(--surface); padding: 14px 16px 18px; display: grid; gap: 12px; max-height: 50vh; overflow: auto; }
+  .themes-panel h2 { font-size: 1.05rem; }
+  .theme-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .theme-row input, .theme-add input {
+    flex: 1 1 18ch; min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 12px; background: var(--bg); font-weight: 700;
+  }
+  .theme-row .tag { font-size: 14px; font-weight: 700; color: var(--ok); background: var(--ok-bg); border-radius: 999px; padding: 4px 12px; }
+  .theme-row .count { font-size: 14px; color: var(--muted); min-width: 10ch; }
+  .theme-row .btn.icon { min-width: 44px; padding: 0; }
+  .theme-add { display: flex; flex-wrap: wrap; gap: 8px; }
   .history { border-top: 1px solid var(--line); background: var(--surface); padding: 12px 16px; max-height: 35vh; overflow: auto; display: grid; gap: 8px; }
   .history-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 6px 0; }
   .history-row .text { overflow-wrap: anywhere; }
@@ -370,7 +381,20 @@ function demoStore() {
     async setActive(id) { const s = read(); s.themes.forEach((t) => (t.active = t.id === id)); write(s); },
     async addTheme(name) {
       const s = read();
-      s.themes.push({ id: uid(), name, position: s.themes.length + 1, active: false });
+      const max = Math.max(0, ...s.themes.map((t) => t.position || 0));
+      s.themes.push({ id: uid(), name, position: max + 1, active: s.themes.length === 0 });
+      write(s);
+    },
+    async renameTheme(id, name) { const s = read(); const t = s.themes.find((x) => x.id === id); if (t) t.name = name; write(s); },
+    async deleteTheme(id) {
+      const s = read();
+      s.themes = s.themes.filter((t) => t.id !== id);
+      s.questions.forEach((q) => { if (q.theme_id === id) q.theme_id = null; });
+      write(s);
+    },
+    async reorderThemes(ids) {
+      const s = read();
+      ids.forEach((id, i) => { const t = s.themes.find((x) => x.id === id); if (t) t.position = i + 1; });
       write(s);
     },
     async getSettings() { return read().settings || {}; },
@@ -417,7 +441,13 @@ function supaStore() {
     async setActive(id) { check(await sb.rpc("set_active_theme", { tid: id })); },
     async addTheme(name) {
       const ts = await this.themes();
-      check(await sb.from("themes").insert({ name, position: ts.length + 1 }));
+      const max = Math.max(0, ...ts.map((t) => t.position || 0));
+      check(await sb.from("themes").insert({ name, position: max + 1, active: ts.length === 0 }));
+    },
+    async renameTheme(id, name) { check(await sb.from("themes").update({ name }).eq("id", id)); },
+    async deleteTheme(id) { check(await sb.from("themes").delete().eq("id", id)); },
+    async reorderThemes(ids) {
+      await Promise.all(ids.map((id, i) => sb.from("themes").update({ position: i + 1 }).eq("id", id).then(check)));
     },
     async getSettings() {
       const row = check(await sb.from("settings").select("data").eq("id", 1).maybeSingle());
@@ -576,7 +606,7 @@ async function viewMod() {
   const isRegie = VIEW === "regie";
   const seen = new Set();
   let firstLoad = true;
-  const state = { themes: [], questions: [], settings: { ...DEFAULT_SETTINGS }, filter: "active", history: false, editing: null, draft: "" };
+  const state = { themes: [], questions: [], settings: { ...DEFAULT_SETTINGS }, filter: "active", history: false, themesPanel: false, editing: null, draft: "" };
 
   const act = async (fn) => { try { await fn(); } catch (e) { console.error(e); toast("Action refusée. Vérifie la connexion."); } };
   const setStatus = async (q, status) => {
@@ -587,7 +617,8 @@ async function viewMod() {
     catch (e) { console.error(e); Object.assign(q, before); render(); toast("Action refusée. Vérifie la connexion."); }
   };
 
-  const safeRender = () => { if (state.editing) state.stale = true; else render(); };
+  const typing = () => !!document.activeElement?.dataset?.keepFocus;
+  const safeRender = () => { if (state.editing || typing()) state.stale = true; else render(); };
   async function refresh() {
     try {
       [state.themes, state.questions] = await Promise.all([store.themes(), store.questions()]);
@@ -666,6 +697,7 @@ async function viewMod() {
 
   function render() {
     const active = state.themes.find((t) => t.active);
+    if (!["active", "all"].includes(state.filter) && !state.themes.some((t) => t.id === state.filter)) state.filter = "active";
     const filterId = state.filter === "active" ? active?.id : state.filter === "all" ? null : state.filter;
     const inFilter = (q) => state.filter === "all" || q.theme_id === filterId;
     const showTheme = state.filter === "all";
@@ -686,13 +718,11 @@ async function viewMod() {
         !active ? h("option", { value: "" }, "Aucune") : null,
         ...state.themes.map((t) => h("option", { value: t.id }, t.name)));
       activeSel.value = active?.id || "";
-      const newTheme = h("input", { placeholder: "Nouvelle table ronde", "aria-label": "Nom de la nouvelle table ronde",
-        style: "border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);min-width:12ch" });
       regieTools = [
-        h("div", { class: "group" }, h("span", {}, "En cours"), activeSel),
-        h("div", { class: "group" }, newTheme, h("button", { class: "btn small", onclick: () => act(async () => {
-          const name = newTheme.value.trim(); if (!name) return; await store.addTheme(name); newTheme.value = "";
-        }) }, "Ajouter")),
+        h("div", { class: "group" }, h("span", {}, "En cours"), activeSel,
+          h("button", { class: "btn small", "aria-pressed": String(state.themesPanel), "aria-expanded": String(state.themesPanel),
+            onclick: () => { state.themesPanel = !state.themesPanel; render(); } },
+            state.themesPanel ? "Fermer la gestion" : "Gérer les tables rondes")),
         h("div", { class: "group" },
           h("button", { class: "btn small", "aria-pressed": String(state.history), onclick: () => { state.history = !state.history; render(); } },
             state.history ? "Masquer l'historique" : "Historique"),
@@ -731,8 +761,57 @@ async function viewMod() {
         : h("p", { class: "empty" }, "Aucune question posée ou rejetée pour le moment."));
     }
 
+    let themesPanel = null;
+    if (isRegie && state.themesPanel) {
+      const ordered = [...state.themes].sort((a, b) => (a.position || 0) - (b.position || 0));
+      const move = (i, dir) => act(async () => {
+        const ids = ordered.map((t) => t.id);
+        [ids[i], ids[i + dir]] = [ids[i + dir], ids[i]];
+        await store.reorderThemes(ids); await loadThemes();
+      });
+      const rows = ordered.map((t, i) => {
+        const n = state.questions.filter((q) => q.theme_id === t.id).length;
+        const name = h("input", { value: t.name, maxlength: 80, "aria-label": "Nom de la table ronde", "data-keep-focus": "1",
+          onkeydown: (e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { e.target.value = t.name; e.target.blur(); } },
+          onblur: (e) => {
+            const v = e.target.value.trim();
+            if (v && v !== t.name) act(async () => { await store.renameTheme(t.id, v); await loadThemes(); toast("Table ronde renommée."); });
+            else { e.target.value = t.name; if (state.stale) { state.stale = false; setTimeout(render, 0); } }
+          } });
+        return h("div", { class: "theme-row" },
+          name,
+          t.active ? h("span", { class: "tag" }, "En cours")
+            : h("button", { class: "btn small", onclick: () => act(async () => { await store.setActive(t.id); await loadThemes(); }) }, "Mettre en cours"),
+          h("span", { class: "count" }, n + (n > 1 ? " questions" : " question")),
+          h("button", { class: "btn ghost small icon", "aria-label": "Monter " + t.name, disabled: i === 0, onclick: () => move(i, -1) }, "↑"),
+          h("button", { class: "btn ghost small icon", "aria-label": "Descendre " + t.name, disabled: i === ordered.length - 1, onclick: () => move(i, 1) }, "↓"),
+          h("button", { class: "btn danger small", onclick: () => {
+            const msg = `Supprimer « ${t.name} » ?` + (n ? `\n\nSes ${n} question(s) resteront visibles dans « Toutes les tables rondes ».` : "");
+            if (!confirm(msg)) return;
+            act(async () => {
+              await store.deleteTheme(t.id);
+              const rest = ordered.filter((x) => x.id !== t.id);
+              if (t.active && rest.length) await store.setActive(rest[0].id);
+              await Promise.all([loadThemes(), refresh()]);
+              toast("Table ronde supprimée.");
+            });
+          } }, "Supprimer"));
+      });
+      const newName = h("input", { placeholder: "Nom de la nouvelle table ronde", maxlength: 80, "aria-label": "Nom de la nouvelle table ronde",
+        "data-keep-focus": "1", onkeydown: (e) => { if (e.key === "Enter") addBtn.click(); } });
+      const addBtn = h("button", { class: "btn primary small", onclick: () => act(async () => {
+        const v = newName.value.trim(); if (!v) return newName.focus();
+        newName.value = ""; await store.addTheme(v); await loadThemes(); toast("Table ronde ajoutée.");
+      }) }, "Ajouter");
+      themesPanel = h("section", { class: "themes-panel", "aria-label": "Gestion des tables rondes" },
+        h("h2", {}, "Tables rondes"),
+        h("p", { class: "hint" }, "Clique sur un nom pour le modifier, puis Entrée. L'ordre est celui des menus."),
+        rows.length ? rows : h("p", { class: "empty" }, "Aucune table ronde. Ajoute la première ci-dessous : elle sera mise en cours automatiquement."),
+        h("div", { class: "theme-add" }, newName, addBtn));
+    }
+
     app.replaceChildren(h("div", { class: "mod" },
-      h("div", {}, demoBanner(), bar),
+      h("div", {}, demoBanner(), bar, themesPanel),
       h("div", { class: "cols" },
         col("validated", "À lire au micro", validated, "Valide une question à droite pour la faire apparaître ici."),
         col("pending", "Reçues", pending, "Les questions du public arrivent ici dès qu'elles sont envoyées.")),
