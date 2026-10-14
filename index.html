@@ -330,7 +330,7 @@ function demoStore() {
   const KEY = "qa-demo-v1";
   const bc = "BroadcastChannel" in window ? new BroadcastChannel(KEY) : null;
   const listeners = new Set();
-  const fire = () => listeners.forEach((f) => f());
+  const fire = () => listeners.forEach((f) => f("all"));
   const read = () => {
     try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) return s; } catch (e) {}
     const s = { themes: [
@@ -374,8 +374,9 @@ function demoStore() {
       write(s);
     },
     async getSettings() { return read().settings || {}; },
+    async settingsVersion() { return read().settings_v || 0; },
     async saveSettings(data) {
-      const s = read(); s.settings = data;
+      const s = read(); s.settings = data; s.settings_v = Date.now();
       try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { throw new Error("Logo trop lourd pour le mode démo."); }
       bc?.postMessage("change"); fire();
     },
@@ -386,21 +387,26 @@ function demoStore() {
 function supaStore() {
   const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
   const listeners = new Set();
-  const fire = () => listeners.forEach((f) => f());
+  const fire = (table, payload) => listeners.forEach((f) => f(table, payload));
   let channel = null;
-  const subscribe = () => {
-    if (channel) sb.removeChannel(channel);
+  // Le temps réel doit porter le jeton du compte connecté, sinon la base filtre les questions.
+  sb.auth.onAuthStateChange((_event, session) => { if (session) sb.realtime.setAuth(session.access_token); });
+  const subscribe = async () => {
+    const { data } = await sb.auth.getSession();
+    if (data.session) sb.realtime.setAuth(data.session.access_token);
+    if (channel) await sb.removeChannel(channel);
+    const on = (table) => (payload) => fire(table, payload);
     channel = sb.channel("qa")
-      .on("postgres_changes", { event: "*", schema: "public", table: "themes" }, fire)
-      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, fire)
-      .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, fire)
-      .subscribe();
+      .on("postgres_changes", { event: "*", schema: "public", table: "themes" }, on("themes"))
+      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, on("questions"))
+      .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, on("settings"))
+      .subscribe((status) => { if (status === "SUBSCRIBED") fire("resync"); });
   };
   const check = ({ data, error }) => { if (error) throw error; return data; };
   return {
     demo: false,
     async session() { return (await sb.auth.getSession()).data.session; },
-    async login(email, password) { check(await sb.auth.signInWithPassword({ email, password })); subscribe(); },
+    async login(email, password) { check(await sb.auth.signInWithPassword({ email, password })); },
     async logout() { await sb.auth.signOut(); },
     start() { subscribe(); },
     onChange(fn) { listeners.add(fn); },
@@ -416,6 +422,10 @@ function supaStore() {
     async getSettings() {
       const row = check(await sb.from("settings").select("data").eq("id", 1).maybeSingle());
       return row?.data || {};
+    },
+    async settingsVersion() {
+      const row = check(await sb.from("settings").select("updated_at").eq("id", 1).maybeSingle());
+      return row?.updated_at || 0;
     },
     async saveSettings(data) {
       check(await sb.from("settings").upsert({ id: 1, data, updated_at: new Date().toISOString() }));
@@ -484,14 +494,18 @@ async function viewParticipant() {
 
   app.replaceChildren(demoBanner() || "", h("main", { class: "participant" }, brandEl, titleEl, themeEl, form));
 
+  let version = null;
   const load = async () => {
     try {
-      const [themes, saved] = await Promise.all([store.themes(), store.getSettings()]);
-      settings = { ...DEFAULT_SETTINGS, ...saved };
-      applyBranding(settings);
-      brandEl.replaceChildren(brandHeader(settings) || "");
-      titleEl.textContent = settings.participant_title || DEFAULT_SETTINGS.participant_title;
-      nameField.hidden = !settings.ask_name;
+      const [themes, v] = await Promise.all([store.themes(), store.settingsVersion()]);
+      if (v !== version) {
+        settings = { ...DEFAULT_SETTINGS, ...(await store.getSettings()) };
+        version = v;
+        applyBranding(settings);
+        brandEl.replaceChildren(brandHeader(settings) || "");
+        titleEl.textContent = settings.participant_title || DEFAULT_SETTINGS.participant_title;
+        nameField.hidden = !settings.ask_name;
+      }
       const active = themes.find((t) => t.active);
       themeEl.replaceChildren(active ? h("span", {}, "En ce moment : ", h("strong", {}, active.name)) : "");
     } catch (e) { console.error(e); }
@@ -516,18 +530,26 @@ async function viewEcran() {
   const landscape = innerWidth > innerHeight && innerWidth >= 800;
   const size = Math.floor(landscape ? Math.min(innerHeight * 0.62, innerWidth * 0.38) : Math.min(innerWidth * 0.7, innerHeight * 0.42));
   if (window.QRCode) new QRCode(qr, { text: BASE_URL, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
-  const load = async () => {
+  const loadSettings = async () => {
     try {
-      const [themes, saved] = await Promise.all([store.themes(), store.getSettings()]);
-      const st = { ...DEFAULT_SETTINGS, ...saved };
+      const st = { ...DEFAULT_SETTINGS, ...(await store.getSettings()) };
       applyBranding(st, { screen: true });
       brandEl.replaceChildren(brandHeader(st) || "");
       title.textContent = st.screen_title || DEFAULT_SETTINGS.screen_title;
-      const active = themes.find((t) => t.active);
+    } catch (e) { console.error(e); }
+  };
+  const loadThemes = async () => {
+    try {
+      const active = (await store.themes()).find((t) => t.active);
       theme.textContent = active ? active.name : "";
     } catch (e) { console.error(e); }
   };
-  store.onChange(load); store.start(); load();
+  store.onChange((table) => {
+    if (table === "themes") loadThemes();
+    else if (table === "settings") loadSettings();
+    else if (table !== "questions") { loadThemes(); loadSettings(); }
+  });
+  store.start(); loadThemes(); loadSettings();
 }
 
 /* ---------- connexion modération ---------- */
@@ -549,6 +571,7 @@ function viewLogin(next) {
 
 /* ---------- vue animateur / régie ---------- */
 async function viewMod() {
+  app.replaceChildren(h("p", { class: "empty", style: "padding:24px" }, "Chargement des questions…"));
   if (!(await store.session())) return viewLogin(viewMod);
   const isRegie = VIEW === "regie";
   const seen = new Set();
@@ -556,17 +579,39 @@ async function viewMod() {
   const state = { themes: [], questions: [], settings: { ...DEFAULT_SETTINGS }, filter: "active", history: false, editing: null, draft: "" };
 
   const act = async (fn) => { try { await fn(); } catch (e) { console.error(e); toast("Action refusée. Vérifie la connexion."); } };
-  const setStatus = (q, status) => act(() => store.update(q.id, patchFor(status)));
+  const setStatus = async (q, status) => {
+    const before = { ...q };
+    Object.assign(q, patchFor(status)); // affichage immédiat, la base suit
+    render();
+    try { await store.update(q.id, patchFor(status)); }
+    catch (e) { console.error(e); Object.assign(q, before); render(); toast("Action refusée. Vérifie la connexion."); }
+  };
 
+  const safeRender = () => { if (state.editing) state.stale = true; else render(); };
   async function refresh() {
-    if (state.editing) return; // pas de rafraîchissement pendant une correction
     try {
-      let saved;
-      [state.themes, state.questions, saved] = await Promise.all([store.themes(), store.questions(), store.getSettings()]);
-      state.settings = { ...DEFAULT_SETTINGS, ...saved };
-      applyBranding(state.settings);
-      render();
+      [state.themes, state.questions] = await Promise.all([store.themes(), store.questions()]);
+      if (!state.editing) render(); else state.stale = true;
     } catch (e) { console.error(e); toast("Connexion perdue, nouvelle tentative…"); }
+  }
+  async function loadSettings() {
+    try {
+      state.settings = { ...DEFAULT_SETTINGS, ...(await store.getSettings()) };
+      applyBranding(state.settings);
+      safeRender();
+    } catch (e) { console.error(e); }
+  }
+  async function loadThemes() {
+    try { state.themes = await store.themes(); safeRender(); } catch (e) { console.error(e); }
+  }
+  function applyQuestion(p) {
+    const row = p.new && p.new.id ? p.new : null;
+    if (p.eventType === "DELETE") state.questions = state.questions.filter((q) => q.id !== p.old?.id);
+    else if (row) {
+      const i = state.questions.findIndex((q) => q.id === row.id);
+      if (i === -1) state.questions.push(row); else state.questions[i] = { ...state.questions[i], ...row };
+    }
+    safeRender();
   }
 
   function card(q, kind, showTheme) {
@@ -584,9 +629,9 @@ async function viewMod() {
         h("button", { class: "btn primary small", onclick: () => act(async () => {
           const text = state.draft.trim();
           if (text.length < 3) return toast("La question doit faire au moins 3 caractères.");
-          await store.update(q.id, { text }); state.editing = null; await refresh();
+          await store.update(q.id, { text }); q.text = text; state.editing = null; render();
         }) }, "Enregistrer"),
-        h("button", { class: "btn ghost small", onclick: () => { state.editing = null; refresh(); } }, "Annuler"))];
+        h("button", { class: "btn ghost small", onclick: () => { state.editing = null; render(); } }, "Annuler"))];
     } else {
       body = [h("p", { class: "text", text: q.text })];
     }
@@ -664,6 +709,10 @@ async function viewMod() {
             (active ? "En cours : " + active.name : "Aucune table ronde en cours")))),
       h("div", { class: "group" }, h("span", {}, "Afficher"), filterSel),
       regieTools,
+      h("nav", { class: "group", "aria-label": "Changer de vue" },
+        h("a", { class: "btn small", href: BASE_URL + (isRegie ? "?v=anim" : "?v=regie") }, isRegie ? "Vue animateur" : "Vue régie"),
+        h("a", { class: "btn small", href: BASE_URL + "?v=ecran", target: "_blank" }, "Écran QR"),
+        h("a", { class: "btn small", href: BASE_URL, target: "_blank" }, "Page du public")),
       !DEMO ? h("button", { class: "btn ghost small", onclick: async () => { await store.logout(); location.reload(); } }, "Déconnexion") : null);
 
     const col = (kind, title, list, emptyText) => h("section", { class: "col " + kind, "aria-label": title },
@@ -691,10 +740,15 @@ async function viewMod() {
     firstLoad = false;
   }
 
-  store.onChange(refresh);
+  store.onChange((table, payload) => {
+    if (table === "questions" && payload) applyQuestion(payload);
+    else if (table === "themes") loadThemes();
+    else if (table === "settings") loadSettings();
+    else { refresh(); if (table === "all") loadSettings(); } // démo, ou reconnexion du temps réel
+  });
   store.start();
-  await refresh();
-  setInterval(refresh, 15000); // filet de sécurité si le temps réel décroche
+  await Promise.all([refresh(), loadSettings()]);
+  setInterval(refresh, 20000); // filet de sécurité si le temps réel décroche
 }
 
 /* ---------- vue personnalisation ---------- */
