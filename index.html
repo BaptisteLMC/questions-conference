@@ -626,7 +626,10 @@ async function viewMod() {
   let firstLoad = true;
   const state = { themes: [], questions: [], settings: { ...DEFAULT_SETTINGS }, filter: "active", history: false, themesPanel: false, editing: null, draft: "" };
 
-  const act = async (fn) => { try { await fn(); } catch (e) { console.error(e); toast("Action refusée. Vérifie la connexion."); } };
+  const act = async (fn) => {
+    try { await fn(); }
+    catch (e) { console.error(e); toast("Action refusée" + (e?.message ? " : " + e.message : ". Vérifie la connexion.")); }
+  };
   const setStatus = async (q, status) => {
     const before = { ...q };
     Object.assign(q, patchFor(status)); // affichage immédiat, la base suit
@@ -640,7 +643,7 @@ async function viewMod() {
   async function refresh() {
     try {
       [state.themes, state.questions] = await Promise.all([store.themes(), store.questions()]);
-      if (!state.editing) render(); else state.stale = true;
+      if (!state.editing && !typing()) render(); else state.stale = true;
     } catch (e) { console.error(e); toast("Connexion perdue, nouvelle tentative…"); }
   }
   async function loadSettings() {
@@ -783,6 +786,16 @@ async function viewMod() {
 
     let themesPanel = null;
     if (isRegie && state.themesPanel) {
+      const colorTimers = state.colorTimers || (state.colorTimers = {});
+      var saveColorSoon = (id, color, delay = 600) => {
+        clearTimeout(colorTimers[id]);
+        colorTimers[id] = setTimeout(() => act(async () => {
+          await store.setThemeColor(id, color);
+          const t = state.themes.find((x) => x.id === id); if (t) t.color = color;
+          toast("Couleur enregistrée.");
+          await loadThemes();
+        }), delay);
+      };
       const ordered = [...state.themes].sort((a, b) => (a.position || 0) - (b.position || 0));
       const move = (i, dir) => act(async () => {
         const ids = ordered.map((t) => t.id);
@@ -802,8 +815,11 @@ async function viewMod() {
           name,
           h("input", { type: "color", value: colorFor(t, state.settings), "aria-label": "Couleur de " + t.name,
             title: isHex(t.color) ? "Couleur de la table ronde" : "Couleur de l'événement (par défaut)",
-            oninput: (e) => applyAccent(e.target.value),
-            onchange: (e) => act(async () => { await store.setThemeColor(t.id, e.target.value); await loadThemes(); }) }),
+            "data-keep-focus": "1",
+            // Enregistre pendant le choix (sans attendre la fermeture du sélecteur), puis à la validation
+            oninput: (e) => { applyAccent(e.target.value); saveColorSoon(t.id, e.target.value); },
+            onchange: (e) => saveColorSoon(t.id, e.target.value, 0),
+            onblur: () => { if (state.stale) { state.stale = false; setTimeout(render, 0); } } }),
           isHex(t.color) ? h("button", { class: "btn ghost small", title: "Revenir à la couleur de l'événement",
             onclick: () => act(async () => { await store.setThemeColor(t.id, null); await loadThemes(); }) }, "Par défaut") : null,
           t.active ? h("span", { class: "tag" }, "En cours")
