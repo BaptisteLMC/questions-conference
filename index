@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Questions du public</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    color-scheme: light;
+    --bg: #EEF1F6;
+    --surface: #FFFFFF;
+    --ink: #18213A;
+    --muted: #5B6478;
+    --line: #D5DAE4;
+    --accent: #2747A8;
+    --on-accent: #FFFFFF;
+    --ok: #0E7C66;
+    --ok-bg: #E3F4EF;
+    --on-ok: #FFFFFF;
+    --pending: #B7791F;
+    --pending-bg: #FFF4DF;
+    --danger: #B3261E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #121829; --surface: #1B2338; --ink: #E9EDF5; --muted: #9AA3B8; --line: #2C3650;
+      --accent: #8EA6FF; --on-accent: #0E1426; --ok: #3CC7A3; --ok-bg: #15302A; --on-ok: #0B1F1A;
+      --pending: #E3A83B; --pending-bg: #2A2416; --danger: #F07167;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121829; --surface: #1B2338; --ink: #E9EDF5; --muted: #9AA3B8; --line: #2C3650;
+    --accent: #8EA6FF; --on-accent: #0E1426; --ok: #3CC7A3; --ok-bg: #15302A; --on-ok: #0B1F1A;
+    --pending: #E3A83B; --pending-bg: #2A2416; --danger: #F07167;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+  body {
+    margin: 0; height: 100%;
+    font-family: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 17px; line-height: 1.45;
+    background: var(--bg); color: var(--ink);
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  h1, h2, p { margin: 0; }
+
+  .btn {
+    min-height: 48px; padding: 0 18px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface);
+    font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.ok { background: var(--ok); border-color: var(--ok); color: var(--on-ok); }
+  .btn.ghost { background: transparent; }
+  .btn.danger { background: transparent; border-color: transparent; color: var(--danger); }
+  .btn.small { min-height: 40px; padding: 0 12px; font-size: 15px; }
+  .field { display: grid; gap: 6px; }
+  .field label { font-weight: 700; }
+  .field input, .field textarea, select {
+    width: 100%; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--surface); padding: 12px 14px;
+  }
+  select { min-height: 44px; padding: 8px 12px; width: auto; }
+  .muted { color: var(--muted); }
+
+  /* Bandeau démo */
+  .demo {
+    background: var(--pending-bg); color: var(--ink); border-bottom: 1px solid var(--line);
+    padding: 8px 16px; font-size: 14px; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
+  }
+  .demo a { color: var(--accent); font-weight: 700; }
+
+  /* Participant */
+  .participant { max-width: 560px; margin: 0 auto; padding: 28px 20px 40px; display: grid; gap: 22px; }
+  .participant h1 { font-size: 1.9rem; line-height: 1.15; }
+  .p-theme { font-size: 1.1rem; color: var(--muted); }
+  .p-theme strong { color: var(--ink); }
+  .participant form { display: grid; gap: 16px; }
+  .participant textarea { min-height: 150px; resize: vertical; font-size: 1.1rem; }
+  .count { font-size: 14px; color: var(--muted); justify-self: end; }
+  .msg { min-height: 1.5em; font-weight: 700; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--danger); }
+
+  /* Modération */
+  .mod { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  [hidden] { display: none !important; }
+  a.btn { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+  .bar .title-wrap { margin-right: auto; display: flex; align-items: center; gap: 12px; }
+  .bar .title-wrap img { max-height: 40px; max-width: 110px; object-fit: contain; }
+  .bar .title { display: grid; }
+  .bar .title h1 { font-size: 1.25rem; }
+  .bar .title p { color: var(--muted); font-size: 15px; }
+  .bar .group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .bar .group > span { font-size: 14px; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .col { min-height: 0; overflow: auto; padding: 14px 16px 24px; display: grid; align-content: start; gap: 12px; }
+  .col + .col { border-left: 1px solid var(--line); }
+  .col-head { display: flex; align-items: baseline; gap: 10px; padding-bottom: 4px; }
+  .col-head h2 { font-size: 1.1rem; }
+  .pill { font-weight: 700; border-radius: 999px; padding: 1px 10px; font-size: 14px; }
+  .col.validated .pill { background: var(--ok-bg); color: var(--ok); }
+  .col.pending .pill { background: var(--pending-bg); color: var(--pending); }
+  .empty { color: var(--muted); padding: 18px 0; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; display: grid; gap: 12px;
+  }
+  .col.validated .card { border-left: 5px solid var(--ok); }
+  .col.pending .card { border-left: 5px solid var(--pending); }
+  .card .text { font-size: 1.08rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .col.validated .card .text { font-size: 1.3rem; line-height: 1.35; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 14px; color: var(--muted); }
+  .meta .chip { border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .card textarea { width: 100%; min-height: 90px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg); }
+  .card.fresh { animation: arrive 1.6s ease-out 1; }
+  @keyframes arrive { from { box-shadow: 0 0 0 4px var(--pending); } to { box-shadow: 0 0 0 0 transparent; } }
+
+  .history { border-top: 1px solid var(--line); background: var(--surface); padding: 12px 16px; max-height: 35vh; overflow: auto; display: grid; gap: 8px; }
+  .history-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 6px 0; }
+  .history-row .text { overflow-wrap: anywhere; }
+
+  /* Connexion */
+  .login { max-width: 400px; margin: 10vh auto 0; padding: 24px 20px; display: grid; gap: 16px; }
+
+  /* Écran */
+  .ecran { height: 100%; display: grid; place-items: center; padding: 4vh 4vw; text-align: center; }
+  .ecran-inner { display: grid; gap: 4vh; justify-items: center; }
+  .ecran .text-block { display: grid; gap: 2.5vh; justify-items: center; }
+  @media (orientation: landscape) and (min-width: 800px) {
+    .ecran { text-align: left; }
+    .ecran-inner { grid-template-columns: minmax(0, 1fr) auto; column-gap: 6vw; align-items: center; width: 100%; max-width: 1600px; }
+    .ecran .text-block { justify-items: start; }
+    .ecran .brand { flex-direction: row; text-align: left; }
+  }
+  .ecran h1 { font-size: clamp(2rem, 5vw, 4.2rem); line-height: 1.05; }
+  .ecran .theme { font-size: clamp(1.2rem, 2.4vw, 2rem); color: var(--muted); }
+  .qr { background: #fff; padding: 18px; border-radius: 16px; }
+  .ecran .url { font-size: clamp(1rem, 1.6vw, 1.4rem); color: var(--muted); overflow-wrap: anywhere; }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand img { max-height: 64px; max-width: 170px; object-fit: contain; }
+  .brand .name { display: grid; }
+  .brand .name strong { font-size: 1.15rem; line-height: 1.2; }
+  .brand .name span { color: var(--muted); font-size: 15px; }
+  .ecran .brand { flex-direction: column; text-align: center; gap: 2vh; }
+  .ecran .brand img { max-height: 18vh; max-width: 36vw; }
+  .ecran .brand .name strong { font-size: clamp(1.4rem, 3vw, 2.6rem); }
+  .ecran .brand .name span { font-size: clamp(1rem, 1.8vw, 1.5rem); }
+
+  /* Personnalisation */
+  .reglages { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; padding: 20px 16px 48px; max-width: 1100px; margin: 0 auto; }
+  .reglages form { display: grid; gap: 18px; align-content: start; }
+  .reglages fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 18px; margin: 0; display: grid; gap: 14px; background: var(--surface); }
+  .reglages legend { font-weight: 700; padding: 0 6px; }
+  .reglages textarea { min-height: 80px; resize: vertical; }
+  .field input[type="color"] { width: 96px; height: 48px; padding: 4px; }
+  .field input[type="file"] { padding: 10px; }
+  .hint { color: var(--muted); font-size: 14px; }
+  .logo-box { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 48px; }
+  .logo-box img {
+    max-height: 70px; max-width: 180px; object-fit: contain; padding: 6px; border-radius: 6px;
+    background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 14px 14px;
+  }
+  .check { display: flex; gap: 10px; align-items: center; font-weight: 700; }
+  .check input { width: 22px; height: 22px; }
+  .preview-wrap { position: sticky; top: 16px; align-self: start; display: grid; gap: 12px; }
+  .preview-wrap h2 { font-size: 1.05rem; }
+  .preview { border: 1px solid var(--line); border-radius: 18px; background: var(--bg); padding: 22px 20px; display: grid; gap: 16px; }
+  .preview .pv-title { font-size: 1.6rem; font-weight: 700; line-height: 1.15; }
+  .preview .pv-btn { justify-self: start; display: inline-flex; align-items: center; pointer-events: none; }
+  @media (max-width: 760px) { .reglages { grid-template-columns: 1fr; } .preview-wrap { position: static; } }
+
+  .toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700;
+    max-width: 90vw;
+  }
+
+  @media (max-width: 760px) {
+    body { height: auto; }
+    .mod { height: auto; }
+    .cols { grid-template-columns: 1fr; }
+    .col { overflow: visible; }
+    .col + .col { border-left: 0; border-top: 1px solid var(--line); }
+  }
+  @media (prefers-reduced-motion: reduce) { .card.fresh { animation: none; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ============ CONFIGURATION ============
+   Laisse vide pour le mode démo (tout reste dans ce navigateur : ouvre plusieurs onglets).
+   Renseigne l'URL et la clé "anon public" de ton projet Supabase pour passer en réel. */
+const CONFIG = {
+  SUPABASE_URL: "https://mjkgcdpsksxxicorjdtj.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qa2djZHBza3N4eGljb3JqZHRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NjYyNDYsImV4cCI6MjEwNzU0MjI0Nn0.Ua7RDFeNwbatwvmMcfRCuGB03REhmzLOmdYzv-JPzYs",
+  COOLDOWN_SECONDES: 30,
+  MAX_CARACTERES: 280,
+};
+
+const params = new URLSearchParams(location.search);
+const VIEW = params.get("v") || "participant"; // participant | anim | regie | ecran
+const DEMO = !CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY;
+const app = document.getElementById("app");
+const BASE_URL = location.origin + location.pathname;
+
+const DEFAULT_SETTINGS = {
+  event_name: "",
+  event_subtitle: "",
+  logo: "",
+  accent: "#2747A8",
+  participant_title: "Posez votre question aux intervenants",
+  thanks_message: "Question envoyée. L'animateur la lira si elle est retenue.",
+  screen_title: "Posez vos questions",
+  screen_theme: "auto",
+  ask_name: true,
+};
+
+/* ---------- utilitaires ---------- */
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "value") el.value = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(16).slice(2));
+const heure = (s) => s ? new Date(s).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
+let toastTimer;
+function toast(text) {
+  document.querySelector(".toast")?.remove();
+  const t = h("div", { class: "toast", role: "status", text });
+  document.body.append(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), 3500);
+}
+function patchFor(status) {
+  const now = new Date().toISOString();
+  if (status === "validated") return { status, validated_at: now };
+  if (status === "asked") return { status, asked_at: now };
+  if (status === "pending") return { status, validated_at: null, asked_at: null };
+  return { status };
+}
+
+/* ---------- habillage ---------- */
+function luminance(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function applyBranding(s, { screen = false } = {}) {
+  const root = document.documentElement;
+  document.title = s.event_name ? s.event_name + " – Questions" : "Questions du public";
+  if (/^#[0-9a-f]{6}$/i.test(s.accent || "")) {
+    root.style.setProperty("--accent", s.accent);
+    root.style.setProperty("--on-accent", luminance(s.accent) > 0.45 ? "#10162A" : "#FFFFFF");
+  }
+  if (screen) {
+    if (s.screen_theme === "light" || s.screen_theme === "dark") root.dataset.theme = s.screen_theme;
+    else delete root.dataset.theme;
+  }
+}
+const safeLogo = (s) => (typeof s.logo === "string" && s.logo.startsWith("data:image/") ? s.logo : "");
+function brandHeader(s) {
+  const logo = safeLogo(s);
+  if (!logo && !s.event_name && !s.event_subtitle) return null;
+  return h("div", { class: "brand" },
+    logo ? h("img", { src: logo, alt: s.event_name ? "Logo " + s.event_name : "Logo de l'événement" }) : null,
+    (s.event_name || s.event_subtitle) ? h("div", { class: "name" },
+      s.event_name ? h("strong", { text: s.event_name }) : null,
+      s.event_subtitle ? h("span", { text: s.event_subtitle }) : null) : null);
+}
+async function logoToDataUrl(file) {
+  if (file.size > 8 * 1024 * 1024) throw new Error("Fichier trop lourd : 8 Mo maximum.");
+  const url = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result); r.onerror = () => rej(new Error("Lecture du fichier impossible."));
+    r.readAsDataURL(file);
+  });
+  if (file.type === "image/svg+xml") {
+    if (url.length > 300000) throw new Error("SVG trop lourd : 200 Ko maximum.");
+    return url;
+  }
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("Image illisible. Utilise un PNG, JPG ou SVG.")); i.src = url;
+  });
+  const scale = Math.min(1, 800 / img.width, 400 / img.height);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  let out = c.toDataURL("image/png");
+  if (out.length > 400000) out = c.toDataURL("image/webp", 0.9);
+  return out;
+}
+
+/* ---------- stockage : démo locale ---------- */
+function demoStore() {
+  const KEY = "qa-demo-v1";
+  const bc = "BroadcastChannel" in window ? new BroadcastChannel(KEY) : null;
+  const listeners = new Set();
+  const fire = () => listeners.forEach((f) => f());
+  const read = () => {
+    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s) return s; } catch (e) {}
+    const s = { themes: [
+      { id: uid(), name: "Table ronde 1", position: 1, active: true },
+      { id: uid(), name: "Table ronde 2", position: 2, active: false },
+    ], questions: [], settings: {} };
+    write(s, false);
+    return s;
+  };
+  const write = (s, notify = true) => {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+    if (notify) { bc?.postMessage("change"); fire(); }
+  };
+  if (bc) bc.onmessage = fire;
+  else window.addEventListener("storage", (e) => { if (e.key === KEY) fire(); });
+  return {
+    demo: true,
+    async session() { return true; },
+    async login() {}, async logout() {},
+    start() {},
+    onChange(fn) { listeners.add(fn); },
+    async themes() { return [...read().themes].sort((a, b) => a.position - b.position); },
+    async questions() { return read().questions; },
+    async ask({ text, author }) {
+      const s = read();
+      const active = s.themes.find((t) => t.active);
+      s.questions.push({ id: uid(), theme_id: active?.id || null, text, author: author || null,
+        status: "pending", created_at: new Date().toISOString(), validated_at: null, asked_at: null });
+      write(s);
+    },
+    async update(id, patch) {
+      const s = read();
+      const q = s.questions.find((x) => x.id === id);
+      if (q) Object.assign(q, patch);
+      write(s);
+    },
+    async setActive(id) { const s = read(); s.themes.forEach((t) => (t.active = t.id === id)); write(s); },
+    async addTheme(name) {
+      const s = read();
+      s.themes.push({ id: uid(), name, position: s.themes.length + 1, active: false });
+      write(s);
+    },
+    async getSettings() { return read().settings || {}; },
+    async saveSettings(data) {
+      const s = read(); s.settings = data;
+      try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { throw new Error("Logo trop lourd pour le mode démo."); }
+      bc?.postMessage("change"); fire();
+    },
+  };
+}
+
+/* ---------- stockage : Supabase ---------- */
+function supaStore() {
+  const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  const listeners = new Set();
+  const fire = () => listeners.forEach((f) => f());
+  let channel = null;
+  const subscribe = () => {
+    if (channel) sb.removeChannel(channel);
+    channel = sb.channel("qa")
+      .on("postgres_changes", { event: "*", schema: "public", table: "themes" }, fire)
+      .on("postgres_changes", { event: "*", schema: "public", table: "questions" }, fire)
+      .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, fire)
+      .subscribe();
+  };
+  const check = ({ data, error }) => { if (error) throw error; return data; };
+  return {
+    demo: false,
+    async session() { return (await sb.auth.getSession()).data.session; },
+    async login(email, password) { check(await sb.auth.signInWithPassword({ email, password })); subscribe(); },
+    async logout() { await sb.auth.signOut(); },
+    start() { subscribe(); },
+    onChange(fn) { listeners.add(fn); },
+    async themes() { return check(await sb.from("themes").select("*").order("position")); },
+    async questions() { return check(await sb.from("questions").select("*").order("created_at")); },
+    async ask({ text, author }) { check(await sb.from("questions").insert({ text, author: author || null })); },
+    async update(id, patch) { check(await sb.from("questions").update(patch).eq("id", id)); },
+    async setActive(id) { check(await sb.rpc("set_active_theme", { tid: id })); },
+    async addTheme(name) {
+      const ts = await this.themes();
+      check(await sb.from("themes").insert({ name, position: ts.length + 1 }));
+    },
+    async getSettings() {
+      const row = check(await sb.from("settings").select("data").eq("id", 1).maybeSingle());
+      return row?.data || {};
+    },
+    async saveSettings(data) {
+      check(await sb.from("settings").upsert({ id: 1, data, updated_at: new Date().toISOString() }));
+    },
+  };
+}
+
+const store = DEMO ? demoStore() : supaStore();
+
+function demoBanner() {
+  if (!DEMO) return null;
+  const link = (v, label) => h("a", { href: BASE_URL + (v ? "?v=" + v : ""), target: "_blank" }, label);
+  return h("div", { class: "demo" },
+    h("span", {}, "Mode démo : les données restent dans ce navigateur. Ouvre chaque vue dans un onglet."),
+    link("", "Participant"), link("anim", "Animateur"), link("regie", "Régie"), link("ecran", "Écran QR"), link("reglages", "Personnalisation"));
+}
+
+/* ---------- vue participant ---------- */
+async function viewParticipant() {
+  let settings = { ...DEFAULT_SETTINGS };
+  const brandEl = h("div");
+  const titleEl = h("h1", { text: settings.participant_title });
+  const themeEl = h("p", { class: "p-theme" });
+  const ta = h("textarea", { id: "q", maxlength: CONFIG.MAX_CARACTERES, rows: 5, required: true,
+    placeholder: "Écrivez votre question ici" });
+  const count = h("span", { class: "count" });
+  const author = h("input", { id: "a", maxlength: 40, autocomplete: "given-name", placeholder: "Facultatif" });
+  const nameField = h("div", { class: "field" }, h("label", { for: "a" }, "Votre prénom"), author);
+  const btn = h("button", { class: "btn primary", type: "submit" }, "Envoyer ma question");
+  const msg = h("p", { class: "msg", role: "status", "aria-live": "polite" });
+  const updateCount = () => (count.textContent = `${ta.value.length} / ${CONFIG.MAX_CARACTERES}`);
+  ta.addEventListener("input", updateCount); updateCount();
+
+  const lastKey = "qa-last-sent";
+  let tick;
+  const cooldown = () => {
+    clearInterval(tick);
+    const run = () => {
+      let last = 0;
+      try { last = Number(localStorage.getItem(lastKey) || 0); } catch (e) {}
+      const left = Math.ceil((last + CONFIG.COOLDOWN_SECONDES * 1000 - Date.now()) / 1000);
+      if (left > 0) { btn.disabled = true; btn.textContent = `Nouvelle question dans ${left} s`; }
+      else { btn.disabled = false; btn.textContent = "Envoyer ma question"; clearInterval(tick); }
+    };
+    run(); tick = setInterval(run, 1000);
+  };
+
+  const form = h("form", { onsubmit: async (e) => {
+    e.preventDefault();
+    const text = ta.value.trim();
+    if (text.length < 3) { msg.className = "msg err"; msg.textContent = "Votre question doit faire au moins 3 caractères."; return; }
+    btn.disabled = true;
+    try {
+      await store.ask({ text, author: settings.ask_name ? author.value.trim() : "" });
+      try { localStorage.setItem(lastKey, String(Date.now())); } catch (err) {}
+      ta.value = ""; updateCount();
+      msg.className = "msg ok"; msg.textContent = settings.thanks_message || DEFAULT_SETTINGS.thanks_message;
+    } catch (err) {
+      msg.className = "msg err"; msg.textContent = "Envoi impossible. Vérifiez votre connexion et réessayez.";
+      console.error(err);
+    }
+    cooldown();
+  } },
+    h("div", { class: "field" }, h("label", { for: "q" }, "Votre question"), ta, count),
+    nameField, btn, msg);
+
+  app.replaceChildren(demoBanner() || "", h("main", { class: "participant" }, brandEl, titleEl, themeEl, form));
+
+  const load = async () => {
+    try {
+      const [themes, saved] = await Promise.all([store.themes(), store.getSettings()]);
+      settings = { ...DEFAULT_SETTINGS, ...saved };
+      applyBranding(settings);
+      brandEl.replaceChildren(brandHeader(settings) || "");
+      titleEl.textContent = settings.participant_title || DEFAULT_SETTINGS.participant_title;
+      nameField.hidden = !settings.ask_name;
+      const active = themes.find((t) => t.active);
+      themeEl.replaceChildren(active ? h("span", {}, "En ce moment : ", h("strong", {}, active.name)) : "");
+    } catch (e) { console.error(e); }
+  };
+  // Le public n'ouvre pas de connexion temps réel (quota Supabase gratuit : 200 connexions simultanées).
+  // La page se rafraîchit toutes les 20 s et au retour sur l'onglet ; en démo, les onglets restent synchronisés.
+  store.onChange(load);
+  setInterval(load, 20000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  load();
+  cooldown();
+}
+
+/* ---------- vue écran (QR code) ---------- */
+async function viewEcran() {
+  const brandEl = h("div");
+  const title = h("h1");
+  const theme = h("p", { class: "theme" });
+  const qr = h("div", { class: "qr", role: "img", "aria-label": "QR code vers la page des questions" });
+  app.replaceChildren(demoBanner() || "", h("main", { class: "ecran" }, h("div", { class: "ecran-inner" },
+    h("div", { class: "text-block" }, brandEl, title, theme, h("p", { class: "url", text: BASE_URL })), qr)));
+  const landscape = innerWidth > innerHeight && innerWidth >= 800;
+  const size = Math.floor(landscape ? Math.min(innerHeight * 0.62, innerWidth * 0.38) : Math.min(innerWidth * 0.7, innerHeight * 0.42));
+  if (window.QRCode) new QRCode(qr, { text: BASE_URL, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+  const load = async () => {
+    try {
+      const [themes, saved] = await Promise.all([store.themes(), store.getSettings()]);
+      const st = { ...DEFAULT_SETTINGS, ...saved };
+      applyBranding(st, { screen: true });
+      brandEl.replaceChildren(brandHeader(st) || "");
+      title.textContent = st.screen_title || DEFAULT_SETTINGS.screen_title;
+      const active = themes.find((t) => t.active);
+      theme.textContent = active ? active.name : "";
+    } catch (e) { console.error(e); }
+  };
+  store.onChange(load); store.start(); load();
+}
+
+/* ---------- connexion modération ---------- */
+function viewLogin(next) {
+  const email = h("input", { id: "e", type: "email", autocomplete: "username", required: true });
+  const pw = h("input", { id: "p", type: "password", autocomplete: "current-password", required: true });
+  const msg = h("p", { class: "msg err", role: "status" });
+  app.replaceChildren(h("main", { class: "login" },
+    h("h1", {}, VIEW === "regie" ? "Connexion régie" : "Connexion animateur"),
+    h("form", { style: "display:grid;gap:14px", onsubmit: async (e) => {
+      e.preventDefault(); msg.textContent = "";
+      try { await store.login(email.value.trim(), pw.value); next(); }
+      catch (err) { msg.textContent = "Identifiants refusés. Vérifie l'e-mail et le mot de passe du compte modération."; }
+    } },
+      h("div", { class: "field" }, h("label", { for: "e" }, "E-mail"), email),
+      h("div", { class: "field" }, h("label", { for: "p" }, "Mot de passe"), pw),
+      h("button", { class: "btn primary", type: "submit" }, "Se connecter"), msg)));
+}
+
+/* ---------- vue animateur / régie ---------- */
+async function viewMod() {
+  if (!(await store.session())) return viewLogin(viewMod);
+  const isRegie = VIEW === "regie";
+  const seen = new Set();
+  let firstLoad = true;
+  const state = { themes: [], questions: [], settings: { ...DEFAULT_SETTINGS }, filter: "active", history: false, editing: null, draft: "" };
+
+  const act = async (fn) => { try { await fn(); } catch (e) { console.error(e); toast("Action refusée. Vérifie la connexion."); } };
+  const setStatus = (q, status) => act(() => store.update(q.id, patchFor(status)));
+
+  async function refresh() {
+    if (state.editing) return; // pas de rafraîchissement pendant une correction
+    try {
+      let saved;
+      [state.themes, state.questions, saved] = await Promise.all([store.themes(), store.questions(), store.getSettings()]);
+      state.settings = { ...DEFAULT_SETTINGS, ...saved };
+      applyBranding(state.settings);
+      render();
+    } catch (e) { console.error(e); toast("Connexion perdue, nouvelle tentative…"); }
+  }
+
+  function card(q, kind, showTheme) {
+    const theme = state.themes.find((t) => t.id === q.theme_id);
+    const fresh = !firstLoad && !seen.has(q.id);
+    seen.add(q.id);
+    const editing = state.editing === q.id;
+    let body;
+    if (editing) {
+      const ta = h("textarea", { maxlength: CONFIG.MAX_CARACTERES, "aria-label": "Corriger la question",
+        oninput: (e) => (state.draft = e.target.value) });
+      ta.value = state.draft;
+      setTimeout(() => ta.focus(), 0);
+      body = [ta, h("div", { class: "actions" },
+        h("button", { class: "btn primary small", onclick: () => act(async () => {
+          const text = state.draft.trim();
+          if (text.length < 3) return toast("La question doit faire au moins 3 caractères.");
+          await store.update(q.id, { text }); state.editing = null; await refresh();
+        }) }, "Enregistrer"),
+        h("button", { class: "btn ghost small", onclick: () => { state.editing = null; refresh(); } }, "Annuler"))];
+    } else {
+      body = [h("p", { class: "text", text: q.text })];
+    }
+    const meta = h("div", { class: "meta" },
+      q.author ? h("span", {}, q.author) : null,
+      h("span", {}, kind === "validated" ? "Validée à " + heure(q.validated_at) : "Reçue à " + heure(q.created_at)),
+      showTheme && theme ? h("span", { class: "chip" }, theme.name) : null);
+    const editBtn = isRegie && !editing ? h("button", { class: "btn ghost small",
+      onclick: () => { state.editing = q.id; state.draft = q.text; render(); } }, "Corriger") : null;
+    const actions = editing ? null : kind === "pending"
+      ? h("div", { class: "actions" },
+          h("button", { class: "btn ok", onclick: () => setStatus(q, "validated") }, "Valider"),
+          h("button", { class: "btn danger", onclick: () => setStatus(q, "rejected") }, "Rejeter"), editBtn)
+      : h("div", { class: "actions" },
+          h("button", { class: "btn primary", onclick: () => setStatus(q, "asked") }, "Posée au micro"),
+          h("button", { class: "btn ghost", onclick: () => setStatus(q, "pending") }, "Remettre en attente"), editBtn);
+    return h("article", { class: "card" + (fresh ? " fresh" : "") + (editing ? " editing" : "") }, ...body, meta, actions);
+  }
+
+  function exportCsv() {
+    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const statut = { pending: "en attente", validated: "validée", asked: "posée", rejected: "rejetée" };
+    const rows = [["Table ronde", "Statut", "Question", "Prénom", "Reçue", "Validée", "Posée"]];
+    for (const q of state.questions) {
+      rows.push([state.themes.find((t) => t.id === q.theme_id)?.name, statut[q.status], q.text, q.author,
+        heure(q.created_at), heure(q.validated_at), heure(q.asked_at)]);
+    }
+    const blob = new Blob(["\ufeff" + rows.map((r) => r.map(cell).join(";")).join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = h("a", { href: URL.createObjectURL(blob), download: "questions-conference.csv" });
+    document.body.append(a); a.click(); a.remove();
+  }
+
+  function render() {
+    const active = state.themes.find((t) => t.active);
+    const filterId = state.filter === "active" ? active?.id : state.filter === "all" ? null : state.filter;
+    const inFilter = (q) => state.filter === "all" || q.theme_id === filterId;
+    const showTheme = state.filter === "all";
+    const validated = state.questions.filter((q) => q.status === "validated" && inFilter(q))
+      .sort((a, b) => (a.validated_at || "").localeCompare(b.validated_at || ""));
+    const pending = state.questions.filter((q) => q.status === "pending" && inFilter(q))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    const filterSel = h("select", { "aria-label": "Questions affichées", onchange: (e) => { state.filter = e.target.value; render(); } },
+      h("option", { value: "active" }, "Table ronde en cours"),
+      ...state.themes.map((t) => h("option", { value: t.id }, t.name)),
+      h("option", { value: "all" }, "Toutes les tables rondes"));
+    filterSel.value = state.filter;
+
+    let regieTools = null;
+    if (isRegie) {
+      const activeSel = h("select", { "aria-label": "Table ronde en cours", onchange: (e) => act(() => store.setActive(e.target.value)) },
+        !active ? h("option", { value: "" }, "Aucune") : null,
+        ...state.themes.map((t) => h("option", { value: t.id }, t.name)));
+      activeSel.value = active?.id || "";
+      const newTheme = h("input", { placeholder: "Nouvelle table ronde", "aria-label": "Nom de la nouvelle table ronde",
+        style: "border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);min-width:12ch" });
+      regieTools = [
+        h("div", { class: "group" }, h("span", {}, "En cours"), activeSel),
+        h("div", { class: "group" }, newTheme, h("button", { class: "btn small", onclick: () => act(async () => {
+          const name = newTheme.value.trim(); if (!name) return; await store.addTheme(name); newTheme.value = "";
+        }) }, "Ajouter")),
+        h("div", { class: "group" },
+          h("button", { class: "btn small", "aria-pressed": String(state.history), onclick: () => { state.history = !state.history; render(); } },
+            state.history ? "Masquer l'historique" : "Historique"),
+          h("button", { class: "btn small", onclick: exportCsv }, "Exporter en CSV"),
+          h("a", { class: "btn small", href: BASE_URL + "?v=reglages" }, "Personnaliser")),
+      ];
+    }
+
+    const bar = h("header", { class: "bar" },
+      h("div", { class: "title-wrap" },
+        safeLogo(state.settings) ? h("img", { src: safeLogo(state.settings), alt: "" }) : null,
+        h("div", { class: "title" }, h("h1", {}, state.settings.event_name || (isRegie ? "Régie" : "Animateur")),
+          h("p", {}, (state.settings.event_name ? (isRegie ? "Régie. " : "Animateur. ") : "") +
+            (active ? "En cours : " + active.name : "Aucune table ronde en cours")))),
+      h("div", { class: "group" }, h("span", {}, "Afficher"), filterSel),
+      regieTools,
+      !DEMO ? h("button", { class: "btn ghost small", onclick: async () => { await store.logout(); location.reload(); } }, "Déconnexion") : null);
+
+    const col = (kind, title, list, emptyText) => h("section", { class: "col " + kind, "aria-label": title },
+      h("div", { class: "col-head" }, h("h2", {}, title), h("span", { class: "pill" }, list.length)),
+      list.length ? list.map((q) => card(q, kind, showTheme)) : h("p", { class: "empty" }, emptyText));
+
+    let history = null;
+    if (isRegie && state.history) {
+      const done = state.questions.filter((q) => (q.status === "asked" || q.status === "rejected") && inFilter(q))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      history = h("section", { class: "history", "aria-label": "Historique" },
+        done.length ? done.map((q) => h("div", { class: "history-row" },
+          h("div", {}, h("p", { class: "text", text: q.text }),
+            h("p", { class: "meta" }, q.status === "asked" ? "Posée à " + heure(q.asked_at) : "Rejetée")),
+          h("button", { class: "btn ghost small", onclick: () => setStatus(q, "pending") }, "Restaurer")))
+        : h("p", { class: "empty" }, "Aucune question posée ou rejetée pour le moment."));
+    }
+
+    app.replaceChildren(h("div", { class: "mod" },
+      h("div", {}, demoBanner(), bar),
+      h("div", { class: "cols" },
+        col("validated", "À lire au micro", validated, "Valide une question à droite pour la faire apparaître ici."),
+        col("pending", "Reçues", pending, "Les questions du public arrivent ici dès qu'elles sont envoyées.")),
+      history));
+    firstLoad = false;
+  }
+
+  store.onChange(refresh);
+  store.start();
+  await refresh();
+  setInterval(refresh, 15000); // filet de sécurité si le temps réel décroche
+}
+
+/* ---------- vue personnalisation ---------- */
+async function viewReglages() {
+  if (!(await store.session())) return viewLogin(viewReglages);
+  let s = { ...DEFAULT_SETTINGS, ...(await store.getSettings()) };
+  let dirty = false;
+  const preview = h("div", { class: "preview" });
+  const status = h("p", { class: "msg", role: "status", "aria-live": "polite" });
+
+  const renderPreview = () => {
+    applyBranding(s);
+    preview.replaceChildren(brandHeader(s) || "",
+      h("p", { class: "pv-title", text: s.participant_title || DEFAULT_SETTINGS.participant_title }),
+      h("p", { class: "p-theme" }, "En ce moment : ", h("strong", {}, "Table ronde 1")),
+      h("span", { class: "btn primary pv-btn", "aria-hidden": "true" }, "Envoyer ma question"),
+      h("p", { class: "msg ok", text: s.thanks_message }));
+  };
+  const set = (k, v) => { s[k] = v; dirty = true; status.textContent = ""; renderPreview(); };
+  const text = (k, label, { max = 120, multiline = false, hint, placeholder } = {}) => {
+    const id = "f-" + k;
+    return h("div", { class: "field" }, h("label", { for: id }, label),
+      h(multiline ? "textarea" : "input", { id, maxlength: max, value: s[k] || "", placeholder,
+        oninput: (e) => set(k, e.target.value) }),
+      hint ? h("span", { class: "hint" }, hint) : null);
+  };
+
+  const logoBox = h("div", { class: "logo-box" });
+  const renderLogo = () => logoBox.replaceChildren(
+    safeLogo(s) ? h("img", { src: safeLogo(s), alt: "Logo actuel" }) : h("span", { class: "muted" }, "Aucun logo"),
+    safeLogo(s) ? h("button", { class: "btn danger small", type: "button", onclick: () => { set("logo", ""); renderLogo(); } }, "Retirer le logo") : null);
+  const fileInput = h("input", { id: "f-logo", type: "file", accept: "image/png,image/jpeg,image/webp,image/svg+xml",
+    onchange: async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      try { set("logo", await logoToDataUrl(f)); renderLogo(); } catch (err) { toast(err.message); }
+      e.target.value = "";
+    } });
+
+  const color = h("input", { id: "f-accent", type: "color", value: s.accent || DEFAULT_SETTINGS.accent,
+    oninput: (e) => set("accent", e.target.value) });
+  const askName = h("input", { id: "f-ask", type: "checkbox", onchange: (e) => set("ask_name", e.target.checked) });
+  askName.checked = !!s.ask_name;
+  const screenTheme = h("select", { id: "f-screen", onchange: (e) => set("screen_theme", e.target.value) },
+    h("option", { value: "dark" }, "Sombre"), h("option", { value: "light" }, "Clair"),
+    h("option", { value: "auto" }, "Selon l'ordinateur"));
+  screenTheme.value = s.screen_theme || "auto";
+
+  const save = h("button", { class: "btn primary", type: "submit" }, "Enregistrer");
+  const form = h("form", { onsubmit: async (e) => {
+    e.preventDefault(); save.disabled = true;
+    try {
+      await store.saveSettings(s); dirty = false;
+      status.className = "msg ok"; status.textContent = "Personnalisation enregistrée. Les écrans ouverts se mettent à jour.";
+    } catch (err) {
+      console.error(err);
+      status.className = "msg err"; status.textContent = "Enregistrement impossible. Vérifie la connexion, ou essaie un logo plus léger.";
+    }
+    save.disabled = false;
+  } },
+    h("fieldset", {}, h("legend", {}, "Événement"),
+      text("event_name", "Nom de l'événement", { placeholder: "Ex. Les Rencontres de la montagne" }),
+      text("event_subtitle", "Sous-titre", { hint: "Date, lieu… Facultatif.", placeholder: "Ex. Vendredi 16 octobre, Gap" }),
+      h("div", { class: "field" }, h("label", { for: "f-logo" }, "Logo"), logoBox, fileInput,
+        h("span", { class: "hint" }, "PNG transparent ou SVG de préférence. Redimensionné automatiquement.")),
+      h("div", { class: "field" }, h("label", { for: "f-accent" }, "Couleur principale"), color,
+        h("span", { class: "hint" }, "Utilisée pour les boutons. Le texte s'adapte pour rester lisible."))),
+    h("fieldset", {}, h("legend", {}, "Page participant"),
+      text("participant_title", "Titre de la page", { max: 90 }),
+      text("thanks_message", "Message après envoi", { max: 160, multiline: true }),
+      h("label", { class: "check", for: "f-ask" }, askName, "Demander le prénom (facultatif pour le public)")),
+    h("fieldset", {}, h("legend", {}, "Écran de projection"),
+      text("screen_title", "Phrase au-dessus du QR code", { max: 60 }),
+      h("div", { class: "field" }, h("label", { for: "f-screen" }, "Fond de l'écran"), screenTheme)),
+    h("div", { class: "actions" }, save), status);
+
+  window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+  app.replaceChildren(demoBanner() || "",
+    h("header", { class: "bar" },
+      h("div", { class: "title-wrap" }, h("div", { class: "title" }, h("h1", {}, "Personnalisation"),
+        h("p", {}, "Logo, nom de l'événement et textes affichés au public"))),
+      h("a", { class: "btn small", href: BASE_URL + "?v=regie" }, "Retour à la régie")),
+    h("main", { class: "reglages" }, form,
+      h("div", { class: "preview-wrap" }, h("h2", {}, "Aperçu de la page participant"), preview,
+        h("div", { class: "actions" },
+          h("a", { class: "btn small", href: BASE_URL, target: "_blank" }, "Ouvrir la page participant"),
+          h("a", { class: "btn small", href: BASE_URL + "?v=ecran", target: "_blank" }, "Ouvrir l'écran QR")))));
+  renderLogo();
+  renderPreview();
+}
+
+/* ---------- démarrage ---------- */
+if (VIEW === "anim" || VIEW === "regie") viewMod();
+else if (VIEW === "reglages") viewReglages();
+else if (VIEW === "ecran") viewEcran();
+else viewParticipant();
+</script>
+</body>
+</html>
