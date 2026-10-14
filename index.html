@@ -143,6 +143,7 @@
   }
   .theme-row .tag { font-size: 14px; font-weight: 700; color: var(--ok); background: var(--ok-bg); border-radius: 999px; padding: 4px 12px; }
   .theme-row .count { font-size: 14px; color: var(--muted); min-width: 10ch; }
+  .theme-row input[type="color"] { flex: 0 0 52px; width: 52px; height: 44px; padding: 3px; cursor: pointer; }
   .theme-row .btn.icon { min-width: 44px; padding: 0; }
   .theme-add { display: flex; flex-wrap: wrap; gap: 8px; }
   .history { border-top: 1px solid var(--line); background: var(--surface); padding: 12px 16px; max-height: 35vh; overflow: auto; display: grid; gap: 8px; }
@@ -163,7 +164,11 @@
     .ecran .brand { flex-direction: row; text-align: left; }
   }
   .ecran h1 { font-size: clamp(2rem, 5vw, 4.2rem); line-height: 1.05; }
-  .ecran .theme { font-size: clamp(1.2rem, 2.4vw, 2rem); color: var(--muted); }
+  .ecran .theme { font-size: clamp(1.4rem, 2.8vw, 2.4rem); color: var(--accent); font-weight: 700; }
+  #app::before { content: ""; display: block; height: 6px; background: var(--accent); transition: background .4s; }
+  body[data-view="ecran"] #app::before { height: 1.4vh; }
+  .p-theme strong { color: var(--accent); }
+  .dot { display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: 6px; vertical-align: baseline; }
   .qr { background: #fff; padding: 18px; border-radius: 16px; }
   .ecran .url { font-size: clamp(1rem, 1.6vw, 1.4rem); color: var(--muted); overflow-wrap: anywhere; }
 
@@ -294,15 +299,21 @@ function luminance(hex) {
 function applyBranding(s, { screen = false } = {}) {
   const root = document.documentElement;
   document.title = s.event_name ? s.event_name + " – Questions" : "Questions du public";
-  if (/^#[0-9a-f]{6}$/i.test(s.accent || "")) {
-    root.style.setProperty("--accent", s.accent);
-    root.style.setProperty("--on-accent", luminance(s.accent) > 0.45 ? "#10162A" : "#FFFFFF");
-  }
+  applyAccent(s.accent);
   if (screen) {
     if (s.screen_theme === "light" || s.screen_theme === "dark") root.dataset.theme = s.screen_theme;
     else delete root.dataset.theme;
   }
 }
+const isHex = (c) => /^#[0-9a-f]{6}$/i.test(c || "");
+function applyAccent(color) {
+  if (!isHex(color)) return;
+  const root = document.documentElement;
+  root.style.setProperty("--accent", color);
+  root.style.setProperty("--on-accent", luminance(color) > 0.45 ? "#10162A" : "#FFFFFF");
+}
+// Couleur de la table ronde si elle en a une, sinon couleur principale de l'événement
+const colorFor = (theme, settings) => (isHex(theme?.color) ? theme.color : settings.accent);
 const safeLogo = (s) => (typeof s.logo === "string" && s.logo.startsWith("data:image/") ? s.logo : "");
 function brandHeader(s) {
   const logo = safeLogo(s);
@@ -386,6 +397,7 @@ function demoStore() {
       write(s);
     },
     async renameTheme(id, name) { const s = read(); const t = s.themes.find((x) => x.id === id); if (t) t.name = name; write(s); },
+    async setThemeColor(id, color) { const s = read(); const t = s.themes.find((x) => x.id === id); if (t) t.color = color; write(s); },
     async deleteTheme(id) {
       const s = read();
       s.themes = s.themes.filter((t) => t.id !== id);
@@ -445,6 +457,7 @@ function supaStore() {
       check(await sb.from("themes").insert({ name, position: max + 1, active: ts.length === 0 }));
     },
     async renameTheme(id, name) { check(await sb.from("themes").update({ name }).eq("id", id)); },
+    async setThemeColor(id, color) { check(await sb.from("themes").update({ color }).eq("id", id)); },
     async deleteTheme(id) { check(await sb.from("themes").delete().eq("id", id)); },
     async reorderThemes(ids) {
       await Promise.all(ids.map((id, i) => sb.from("themes").update({ position: i + 1 }).eq("id", id).then(check)));
@@ -537,6 +550,7 @@ async function viewParticipant() {
         nameField.hidden = !settings.ask_name;
       }
       const active = themes.find((t) => t.active);
+      applyAccent(colorFor(active, settings));
       themeEl.replaceChildren(active ? h("span", {}, "En ce moment : ", h("strong", {}, active.name)) : "");
     } catch (e) { console.error(e); }
   };
@@ -560,18 +574,22 @@ async function viewEcran() {
   const landscape = innerWidth > innerHeight && innerWidth >= 800;
   const size = Math.floor(landscape ? Math.min(innerHeight * 0.62, innerWidth * 0.38) : Math.min(innerWidth * 0.7, innerHeight * 0.42));
   if (window.QRCode) new QRCode(qr, { text: BASE_URL, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+  document.body.dataset.view = "ecran";
+  let st = { ...DEFAULT_SETTINGS }, activeTheme = null;
   const loadSettings = async () => {
     try {
-      const st = { ...DEFAULT_SETTINGS, ...(await store.getSettings()) };
+      st = { ...DEFAULT_SETTINGS, ...(await store.getSettings()) };
       applyBranding(st, { screen: true });
+      applyAccent(colorFor(activeTheme, st));
       brandEl.replaceChildren(brandHeader(st) || "");
       title.textContent = st.screen_title || DEFAULT_SETTINGS.screen_title;
     } catch (e) { console.error(e); }
   };
   const loadThemes = async () => {
     try {
-      const active = (await store.themes()).find((t) => t.active);
-      theme.textContent = active ? active.name : "";
+      activeTheme = (await store.themes()).find((t) => t.active) || null;
+      theme.textContent = activeTheme ? activeTheme.name : "";
+      applyAccent(colorFor(activeTheme, st));
     } catch (e) { console.error(e); }
   };
   store.onChange((table) => {
@@ -669,7 +687,8 @@ async function viewMod() {
     const meta = h("div", { class: "meta" },
       q.author ? h("span", {}, q.author) : null,
       h("span", {}, kind === "validated" ? "Validée à " + heure(q.validated_at) : "Reçue à " + heure(q.created_at)),
-      showTheme && theme ? h("span", { class: "chip" }, theme.name) : null);
+      showTheme && theme ? h("span", { class: "chip" },
+        h("span", { class: "dot", style: "background:" + colorFor(theme, state.settings) }), theme.name) : null);
     const editBtn = isRegie && !editing ? h("button", { class: "btn ghost small",
       onclick: () => { state.editing = q.id; state.draft = q.text; render(); } }, "Corriger") : null;
     const actions = editing ? null : kind === "pending"
@@ -700,6 +719,7 @@ async function viewMod() {
     if (!["active", "all"].includes(state.filter) && !state.themes.some((t) => t.id === state.filter)) state.filter = "active";
     const filterId = state.filter === "active" ? active?.id : state.filter === "all" ? null : state.filter;
     const inFilter = (q) => state.filter === "all" || q.theme_id === filterId;
+    applyAccent(state.filter === "all" ? state.settings.accent : colorFor(state.themes.find((t) => t.id === filterId), state.settings));
     const showTheme = state.filter === "all";
     const validated = state.questions.filter((q) => q.status === "validated" && inFilter(q))
       .sort((a, b) => (a.validated_at || "").localeCompare(b.validated_at || ""));
@@ -780,6 +800,12 @@ async function viewMod() {
           } });
         return h("div", { class: "theme-row" },
           name,
+          h("input", { type: "color", value: colorFor(t, state.settings), "aria-label": "Couleur de " + t.name,
+            title: isHex(t.color) ? "Couleur de la table ronde" : "Couleur de l'événement (par défaut)",
+            oninput: (e) => applyAccent(e.target.value),
+            onchange: (e) => act(async () => { await store.setThemeColor(t.id, e.target.value); await loadThemes(); }) }),
+          isHex(t.color) ? h("button", { class: "btn ghost small", title: "Revenir à la couleur de l'événement",
+            onclick: () => act(async () => { await store.setThemeColor(t.id, null); await loadThemes(); }) }, "Par défaut") : null,
           t.active ? h("span", { class: "tag" }, "En cours")
             : h("button", { class: "btn small", onclick: () => act(async () => { await store.setActive(t.id); await loadThemes(); }) }, "Mettre en cours"),
           h("span", { class: "count" }, n + (n > 1 ? " questions" : " question")),
@@ -805,7 +831,7 @@ async function viewMod() {
       }) }, "Ajouter");
       themesPanel = h("section", { class: "themes-panel", "aria-label": "Gestion des tables rondes" },
         h("h2", {}, "Tables rondes"),
-        h("p", { class: "hint" }, "Clique sur un nom pour le modifier, puis Entrée. L'ordre est celui des menus."),
+        h("p", { class: "hint" }, "Clique sur un nom pour le modifier, puis Entrée. La pastille de couleur habille toute l'app quand la table ronde est en cours. L'ordre est celui des menus."),
         rows.length ? rows : h("p", { class: "empty" }, "Aucune table ronde. Ajoute la première ci-dessous : elle sera mise en cours automatiquement."),
         h("div", { class: "theme-add" }, newName, addBtn));
     }
@@ -893,7 +919,7 @@ async function viewReglages() {
       h("div", { class: "field" }, h("label", { for: "f-logo" }, "Logo"), logoBox, fileInput,
         h("span", { class: "hint" }, "PNG transparent ou SVG de préférence. Redimensionné automatiquement.")),
       h("div", { class: "field" }, h("label", { for: "f-accent" }, "Couleur principale"), color,
-        h("span", { class: "hint" }, "Utilisée pour les boutons. Le texte s'adapte pour rester lisible."))),
+        h("span", { class: "hint" }, "Couleur par défaut. Chaque table ronde peut avoir la sienne, depuis la régie. Le texte des boutons s'adapte pour rester lisible."))),
     h("fieldset", {}, h("legend", {}, "Page participant"),
       text("participant_title", "Titre de la page", { max: 90 }),
       text("thanks_message", "Message après envoi", { max: 160, multiline: true }),
